@@ -1,0 +1,10 @@
+# Go build output
+/levireg-core
+*.test
+
+# Local env
+.env
+.env.local
+
+# Scratch
+tmp/
