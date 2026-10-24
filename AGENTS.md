@@ -31,3 +31,17 @@ make test-v PKG=./internal/server/ RUN=TestHealthz   # single test
 - `/healthz` is liveness only; dependency checks belong in a separate `/readyz`.
 - Dependencies are passed in as parameters (`New(log, addr)`); no globals or package-level singletons. Tests pass `zap.NewNop()`.
 - Handlers are plain `func(w, r)`; keep them testable via `httptest`.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues via `gh` (repo `Lev1reG/levireg-core`); no PR-as-request surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five canonical roles. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
