@@ -15,7 +15,8 @@ import (
 func New(log *zap.Logger, addr string) *http.Server {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// nginx on the same host sets X-Real-IP; trust it only from loopback.
+	r.Use(middleware.ClientIPFromHeader("X-Real-IP", "127.0.0.1/32", "::1/128"))
 	r.Use(middleware.Recoverer)
 	r.Use(logger.RequestLogger(log))
 
