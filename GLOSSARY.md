@@ -19,3 +19,7 @@ _Avoid_: validation error, form error
 **Liveness probe**:
 `/healthz`, which reports only that the process is up. Outside the API envelope on purpose.
 _Avoid_: health check, readiness, heartbeat
+
+**Readiness probe**:
+`/readyz`, which reports whether the service can reach its dependencies (the database). Outside the API envelope, like the liveness probe.
+_Avoid_: health check, deep health

@@ -1,6 +1,6 @@
 # levireg-core
 
-Backend service for the personal website (`personal-website-static` is the frontend repo, a sibling directory). Go + chi router + zap logger, single binary, no database or third-party services yet.
+Backend service for the personal website (`personal-website-static` is the frontend repo, a sibling directory). Go + chi router + zap logger, single binary. PostgreSQL via pgx + sqlc (see `docs/adr/0002-postgres-pgx-sqlc.md`), no other third-party services yet.
 
 ## Commands
 
@@ -12,6 +12,9 @@ make check        # gofmt -l . && go vet ./... && go test ./...  (run before fin
 make test-v PKG=./internal/server/ RUN=TestHealthz   # single test
 ```
 
+- `make up` / `make down` start/stop the local Postgres (`compose.yaml`). `DATABASE_URL` defaults to it.
+- `make migrate-up`, `make migrate-down` (one step), `make migrate-new NAME=add_x` run golang-migrate in Docker against `db/migrations/`.
+- `make sqlc` regenerates `internal/db/` from `db/migrations/` + `db/queries/`. Never edit generated files; commit them.
 - `make fmt` rewrites files; `gofmt -l .` in `check` only reports.
 - `PORT=9000 make run` does **not** work: `.env` is `-include`d and `export`ed after, so `.env` wins. Edit `.env` to change it.
 - `.env` must be plain `KEY=value` (no quotes/multiline) because `make` parses it, not the shell.
@@ -24,11 +27,12 @@ make test-v PKG=./internal/server/ RUN=TestHealthz   # single test
 - `internal/logger` — zap setup plus `RequestLogger` middleware (zap has no HTTP adapter, don't swap in chi's own logger).
 - `internal/server` — router assembly and `http.Server` timeouts; `New()` returns the server so tests exercise `srv.Handler` directly.
 - `internal/handler` — HTTP handlers.
+- `internal/db` — sqlc-generated code. `db/migrations` and `db/queries` hold the SQL.
 
 ## Conventions
 
 - New routes go under `r.Route("/api/v1", ...)`. `/healthz` stays outside `/api/v1` so probes don't inherit future API middleware (auth, rate limiting).
-- `/healthz` is liveness only; dependency checks belong in a separate `/readyz`.
+- `/healthz` is liveness only; dependency checks live in `/readyz`.
 - Dependencies are passed in as parameters (`New(log, addr)`); no globals or package-level singletons. Tests pass `zap.NewNop()`.
 - Handlers are plain `func(w, r)`; keep them testable via `httptest`.
 

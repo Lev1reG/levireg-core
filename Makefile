@@ -7,7 +7,14 @@ APP := levireg-core
 -include .env
 export
 
-.PHONY: run build test test-v fmt check clean
+DATABASE_URL ?= postgres://levireg:levireg@localhost:5432/levireg?sslmode=disable
+
+SQLC_IMAGE := sqlc/sqlc:1.31.1
+MIGRATE_IMAGE := migrate/migrate:v4.20.1
+# --network host so the migrate container reaches the compose Postgres on localhost.
+MIGRATE := docker run --rm --network host -v $(CURDIR)/db/migrations:/migrations $(MIGRATE_IMAGE) -path /migrations -database "$(DATABASE_URL)"
+
+.PHONY: run build test test-v fmt check clean up down sqlc migrate-up migrate-down migrate-new
 
 run:
 	go run .
@@ -31,3 +38,21 @@ check:
 
 clean:
 	rm -f $(APP)
+
+up:
+	docker compose up -d --wait
+
+down:
+	docker compose down
+
+sqlc:
+	docker run --rm --user $(shell id -u):$(shell id -g) -v $(CURDIR):/src -w /src $(SQLC_IMAGE) generate
+
+migrate-up:
+	$(MIGRATE) up
+
+migrate-down:
+	$(MIGRATE) down 1
+
+migrate-new:
+	docker run --rm --user $(shell id -u):$(shell id -g) -v $(CURDIR)/db/migrations:/migrations $(MIGRATE_IMAGE) create -ext sql -dir /migrations -seq $(NAME)

@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 
 	"github.com/Lev1reG/levireg-core/internal/config"
@@ -25,10 +26,23 @@ func main() {
 	}
 	defer func() { _ = log.Sync() }()
 
-	srv := server.New(log, net.JoinHostPort("", cfg.Port))
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal("database config invalid", zap.Error(err))
+	}
+	defer pool.Close()
+
+	pingCtx, cancelPing := context.WithTimeout(ctx, 5*time.Second)
+	err = pool.Ping(pingCtx)
+	cancelPing()
+	if err != nil {
+		log.Fatal("database unreachable", zap.Error(err))
+	}
+
+	srv := server.New(log, net.JoinHostPort("", cfg.Port), pool)
 
 	go func() {
 		log.Info("server listening", zap.String("addr", srv.Addr))

@@ -12,7 +12,7 @@ import (
 	"github.com/Lev1reG/levireg-core/internal/logger"
 )
 
-func New(log *zap.Logger, addr string) *http.Server {
+func New(log *zap.Logger, addr string, db handler.Pinger) *http.Server {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	// nginx on the same host sets X-Real-IP; trust it only from loopback.
@@ -23,6 +23,7 @@ func New(log *zap.Logger, addr string) *http.Server {
 	// Outside /api/v1 on purpose: probes must not inherit API middleware
 	// such as auth or rate limiting.
 	r.Get("/healthz", handler.Healthz)
+	r.Get("/readyz", handler.Readyz(db))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// No endpoints yet.
