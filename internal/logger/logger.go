@@ -32,13 +32,19 @@ func RequestLogger(log *zap.Logger) func(http.Handler) http.Handler {
 				zap.Int("bytes", ww.BytesWritten()),
 				zap.Duration("duration", time.Since(start)),
 			}
+			if ip := middleware.GetClientIP(r.Context()); ip != "" {
+				fields = append(fields, zap.String("client_ip", ip))
+			}
 			if id := middleware.GetReqID(r.Context()); id != "" {
 				fields = append(fields, zap.String("request_id", id))
 			}
 
-			if ww.Status() >= http.StatusInternalServerError {
+			switch status := ww.Status(); {
+			case status >= http.StatusInternalServerError:
 				log.Error("request", fields...)
-			} else {
+			case status >= http.StatusBadRequest:
+				log.Warn("request", fields...)
+			default:
 				log.Info("request", fields...)
 			}
 		})
