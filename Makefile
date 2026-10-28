@@ -23,7 +23,7 @@ build:
 	go build -o $(APP) .
 
 test:
-	go test ./...
+	go test -p 1 ./...
 
 test-v:
 	go test $(PKG) -run $(RUN) -v
@@ -34,7 +34,7 @@ fmt:
 check:
 	gofmt -l .
 	go vet ./...
-	go test ./...
+	go test -p 1 ./...
 
 clean:
 	rm -f $(APP)
