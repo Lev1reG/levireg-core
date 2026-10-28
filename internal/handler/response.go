@@ -5,8 +5,19 @@ import (
 	"net/http"
 )
 
-// CodeOK is the code of a successful response.
-const CodeOK = "ok"
+// Response codes clients branch on.
+const (
+	CodeOK                 = "ok"
+	CodeUnauthorized       = "unauthorized"
+	CodeForbidden          = "forbidden"
+	CodeInternalError      = "internal_error"
+	CodeValidationFailed   = "validation_failed"
+	CodeInvalidCredentials = "invalid_credentials"
+	CodeBadRequest         = "bad_request"
+	CodeUsernameTaken      = "username_taken"
+	CodeEmailTaken         = "email_taken"
+	CodeRateLimited        = "rate_limited"
+)
 
 // Envelope is the shape of every /api/v1 response. Code is the stable contract
 // clients branch on; the rest is omitted when empty.

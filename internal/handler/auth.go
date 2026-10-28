@@ -2,9 +2,6 @@ package handler
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -22,7 +19,13 @@ const sessionTTL = 7 * 24 * time.Hour
 
 // Fixed hash verified for unknown usernames so login timing does not reveal
 // which usernames exist.
-var dummyHash, _ = auth.HashPassword("dummy-password")
+var dummyHash = func() string {
+	h, err := auth.HashPassword("dummy-password")
+	if err != nil {
+		panic(err)
+	}
+	return h
+}()
 
 type userCtxKey struct{}
 
@@ -42,11 +45,6 @@ func toUserJSON(u db.AuthUser) UserJSON {
 // Auth serves the /auth endpoints and the middleware guarding protected routes.
 type Auth struct{ Q *db.Queries }
 
-func hashToken(token string) []byte {
-	h := sha256.Sum256([]byte(token))
-	return h[:]
-}
-
 func bearer(r *http.Request) string {
 	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok {
@@ -56,11 +54,11 @@ func bearer(r *http.Request) string {
 }
 
 func unauthorized(w http.ResponseWriter) {
-	WriteError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid token", nil)
+	WriteError(w, http.StatusUnauthorized, CodeUnauthorized, "missing or invalid token", nil)
 }
 
 func serverError(w http.ResponseWriter) {
-	WriteError(w, http.StatusInternalServerError, "internal_error", "something went wrong", nil)
+	WriteError(w, http.StatusInternalServerError, CodeInternalError, "something went wrong", nil)
 }
 
 // Require puts the session's User in the request context or answers 401.
@@ -71,7 +69,7 @@ func (a Auth) Require(next http.Handler) http.Handler {
 			unauthorized(w)
 			return
 		}
-		u, err := a.Q.GetUserBySessionToken(r.Context(), hashToken(tok))
+		u, err := a.Q.GetUserBySessionToken(r.Context(), auth.HashToken(tok))
 		if errors.Is(err, pgx.ErrNoRows) {
 			unauthorized(w)
 			return
@@ -88,7 +86,7 @@ func (a Auth) Require(next http.Handler) http.Handler {
 func RequireSuperadmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if currentUser(r).Role != auth.RoleSuperadmin {
-			WriteError(w, http.StatusForbidden, "forbidden", "superadmin only", nil)
+			WriteError(w, http.StatusForbidden, CodeForbidden, "superadmin only", nil)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -102,7 +100,7 @@ func currentUser(r *http.Request) db.AuthUser {
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(v); err != nil {
-		WriteError(w, http.StatusBadRequest, "bad_request", "invalid JSON body", nil)
+		WriteError(w, http.StatusBadRequest, CodeBadRequest, "invalid JSON body", nil)
 		return false
 	}
 	return true
@@ -114,7 +112,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Username == "" || in.Password == "" {
-		WriteError(w, http.StatusUnprocessableEntity, "validation_failed", "username and password are required", map[string]string{"username": "is required", "password": "is required"})
+		WriteError(w, http.StatusUnprocessableEntity, CodeValidationFailed, "username and password are required", map[string]string{"username": "is required", "password": "is required"})
 		return
 	}
 	u, err := a.Q.GetUserByUsername(r.Context(), strings.ToLower(in.Username))
@@ -126,19 +124,18 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !auth.VerifyPassword(hash, in.Password) || err != nil {
-		WriteError(w, http.StatusUnauthorized, "invalid_credentials", "wrong username or password", nil)
+		WriteError(w, http.StatusUnauthorized, CodeInvalidCredentials, "wrong username or password", nil)
 		return
 	}
 
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
+	token, tokenHash, err := auth.NewSessionToken()
+	if err != nil {
 		serverError(w)
 		return
 	}
-	token := base64.RawURLEncoding.EncodeToString(raw)
 	exp := time.Now().Add(sessionTTL)
 	err = a.Q.CreateSession(r.Context(), db.CreateSessionParams{
-		TokenHash: hashToken(token), Username: u.Username,
+		TokenHash: tokenHash, Username: u.Username,
 		ExpiresAt: pgtype.Timestamptz{Time: exp, Valid: true},
 	})
 	if err != nil {
@@ -153,7 +150,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a Auth) Logout(w http.ResponseWriter, r *http.Request) {
-	if err := a.Q.DeleteSession(r.Context(), hashToken(bearer(r))); err != nil {
+	if err := a.Q.DeleteSession(r.Context(), auth.HashToken(bearer(r))); err != nil {
 		serverError(w)
 		return
 	}
@@ -170,15 +167,15 @@ func (a Auth) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errs := in.Validate(); len(errs) > 0 {
-		WriteError(w, http.StatusUnprocessableEntity, "validation_failed", "invalid fields", errs)
+		WriteError(w, http.StatusUnprocessableEntity, CodeValidationFailed, "invalid fields", errs)
 		return
 	}
 	u, err := auth.CreateUser(r.Context(), a.Q, in)
 	switch {
 	case errors.Is(err, auth.ErrUsernameTaken):
-		WriteError(w, http.StatusConflict, "username_taken", "username already exists", nil)
+		WriteError(w, http.StatusConflict, CodeUsernameTaken, "username already exists", nil)
 	case errors.Is(err, auth.ErrEmailTaken):
-		WriteError(w, http.StatusConflict, "email_taken", "email already exists", nil)
+		WriteError(w, http.StatusConflict, CodeEmailTaken, "email already exists", nil)
 	case err != nil:
 		serverError(w)
 	default:
