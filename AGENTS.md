@@ -16,7 +16,7 @@ make test-v PKG=./internal/server/ RUN=TestHealthz   # single test
 - `make migrate-up`, `make migrate-down` (one step), `make migrate-new NAME=add_x` run golang-migrate in Docker against `db/migrations/`.
 - `make sqlc` regenerates `internal/db/` from `db/migrations/` + `db/queries/`. Never edit generated files; commit them.
 - DB-backed tests need `make up migrate-up` first; they skip themselves if Postgres is unreachable. `-p 1` because packages share tables. `internal/server/auth_test.go` truncates `auth.users` in whatever `DATABASE_URL` points at: never run it against production.
-- `go run . create-superadmin -username u -email e -name n` creates the first Superadmin (password from stdin, same `DATABASE_URL` as the server).
+- `make create-superadmin SA_USERNAME=u SA_EMAIL=e SA_NAME=n` (or `go run . create-superadmin -username u -email e -name n`) creates the first Superadmin (password from stdin, same `DATABASE_URL` as the server).
 - `make fmt` rewrites files; `gofmt -l .` in `check` only reports.
 - `PORT=9000 make run` does **not** work: `.env` is `-include`d and `export`ed after, so `.env` wins. Edit `.env` to change it.
 - `.env` must be plain `KEY=value` (no quotes/multiline) because `make` parses it, not the shell.

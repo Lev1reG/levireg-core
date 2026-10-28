@@ -14,7 +14,7 @@ MIGRATE_IMAGE := migrate/migrate:v4.20.1
 # --network host so the migrate container reaches the compose Postgres on localhost.
 MIGRATE := docker run --rm --network host -v $(CURDIR)/db/migrations:/migrations $(MIGRATE_IMAGE) -path /migrations -database "$(DATABASE_URL)"
 
-.PHONY: run build test test-v fmt check clean up down sqlc migrate-up migrate-down migrate-new
+.PHONY: run build test test-v fmt check clean up down sqlc migrate-up migrate-down migrate-new create-superadmin
 
 run:
 	go run .
@@ -56,3 +56,6 @@ migrate-down:
 
 migrate-new:
 	docker run --rm --user $(shell id -u):$(shell id -g) -v $(CURDIR)/db/migrations:/migrations $(MIGRATE_IMAGE) create -ext sql -dir /migrations -seq $(NAME)
+
+create-superadmin:
+	go run . create-superadmin -username "$(SA_USERNAME)" -email "$(SA_EMAIL)" -name "$(SA_NAME)"
