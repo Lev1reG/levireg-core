@@ -23,3 +23,23 @@ _Avoid_: health check, readiness, heartbeat
 **Readiness probe**:
 `/readyz`, which reports whether the service can reach its dependencies (the database). Outside the API envelope, like the liveness probe.
 _Avoid_: health check, deep health
+
+**User**:
+A person who can sign in to the service. Identified by a unique username; also has an email and a display name.
+_Avoid_: account, akun, member (as a synonym)
+
+**Role**:
+The permission level a User holds. Exactly one of **Superadmin** or **Member**.
+_Avoid_: permission, group, level
+
+**Superadmin**:
+A User with full control, including registering new Users.
+_Avoid_: admin, root, owner
+
+**Member**:
+A User without administrative rights.
+_Avoid_: normal user, regular user, guest
+
+**Session**:
+A User's signed-in state, created by logging in and ended by logging out or by expiring. Proven by presenting its token.
+_Avoid_: login, auth token, JWT
