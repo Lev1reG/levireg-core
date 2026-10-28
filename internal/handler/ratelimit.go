@@ -7,40 +7,39 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
-	"golang.org/x/time/rate"
 )
 
-type limiterEntry struct {
-	l    *rate.Limiter
-	seen time.Time
-}
-
-// RateLimit allows n requests per minute per client IP and counts every
-// request. shortcut: in-memory, per-process; move to Postgres/Redis if running >1 instance
+// RateLimit allows n requests per rolling minute per client IP (sliding log,
+// so no 60s span can exceed n). shortcut: in-memory, per-process; move to
+// Postgres/Redis if running >1 instance
 func RateLimit(n int) func(http.Handler) http.Handler {
 	var mu sync.Mutex
-	entries := map[string]*limiterEntry{}
+	hits := map[string][]time.Time{}
 	var lastSweep time.Time
 
 	allow := func(ip string) bool {
 		mu.Lock()
 		defer mu.Unlock()
 		now := time.Now()
-		if now.Sub(lastSweep) > time.Minute { // evict idle entries
-			for k, e := range entries {
-				if now.Sub(e.seen) > 2*time.Minute {
-					delete(entries, k)
+		cut := now.Add(-time.Minute)
+		if now.Sub(lastSweep) > time.Minute { // evict idle IPs
+			for k, ts := range hits {
+				if ts[len(ts)-1].Before(cut) {
+					delete(hits, k)
 				}
 			}
 			lastSweep = now
 		}
-		e := entries[ip]
-		if e == nil {
-			e = &limiterEntry{l: rate.NewLimiter(rate.Every(time.Minute/time.Duration(n)), n)}
-			entries[ip] = e
+		ts := hits[ip]
+		for len(ts) > 0 && ts[0].Before(cut) {
+			ts = ts[1:]
 		}
-		e.seen = now
-		return e.l.AllowN(now, 1)
+		if len(ts) >= n {
+			hits[ip] = ts
+			return false
+		}
+		hits[ip] = append(ts, now)
+		return true
 	}
 
 	return func(next http.Handler) http.Handler {
@@ -50,7 +49,7 @@ func RateLimit(n int) func(http.Handler) http.Handler {
 				ip, _, _ = net.SplitHostPort(r.RemoteAddr)
 			}
 			if !allow(ip) {
-				WriteError(w, http.StatusTooManyRequests, "rate_limited", "too many attempts, try again later", nil)
+				WriteError(w, http.StatusTooManyRequests, CodeRateLimited, "too many attempts, try again later", nil)
 				return
 			}
 			next.ServeHTTP(w, r)
