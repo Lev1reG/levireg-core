@@ -8,6 +8,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AuthSession struct {
+	TokenHash []byte
+	Username  string
+	CreatedAt pgtype.Timestamptz
+	ExpiresAt pgtype.Timestamptz
+}
+
+type AuthUser struct {
+	Username     string
+	Email        string
+	Name         string
+	PasswordHash string
+	Role         string
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+}
+
 type Example struct {
 	ID        int64
 	Name      string
