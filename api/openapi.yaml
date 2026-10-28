@@ -1,0 +1,225 @@
+openapi: 3.1.0
+info:
+  title: levireg-core
+  version: 1.0.0
+  description: Backend API for the personal website. Every /api/v1 response uses the envelope; clients branch on `code`.
+servers:
+  - url: /
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      operationId: healthz
+      tags: [Probes]
+      responses:
+        "200":
+          description: Process is up.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProbeStatus" }
+  /readyz:
+    get:
+      summary: Readiness probe
+      operationId: readyz
+      tags: [Probes]
+      responses:
+        "200":
+          description: Database reachable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProbeStatus" }
+        "503":
+          description: Database unreachable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProbeStatus" }
+  /api/v1/auth/login:
+    post:
+      summary: Sign in and create a Session
+      description: Rate limited to 5 requests per minute per client IP.
+      operationId: login
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: "Code `ok`."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [token, expires_at, user]
+                        properties:
+                          token: { type: string }
+                          expires_at: { type: string, format: date-time }
+                          user: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: "Code `invalid_credentials`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429":
+          description: "Code `rate_limited`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /api/v1/auth/logout:
+    post:
+      summary: End the current Session
+      operationId: logout
+      tags: [Auth]
+      security: [{ bearer: [] }]
+      responses:
+        "200":
+          description: "Code `ok`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /api/v1/auth/me:
+    get:
+      summary: Current User
+      operationId: me
+      tags: [Auth]
+      security: [{ bearer: [] }]
+      responses:
+        "200":
+          description: "Code `ok`."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /api/v1/auth/register:
+    post:
+      summary: Register a User (Superadmin only)
+      operationId: register
+      tags: [Auth]
+      security: [{ bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, email, name, password]
+              properties:
+                username: { type: string, pattern: "^[a-z0-9_]{3,32}$" }
+                email: { type: string, format: email }
+                name: { type: string }
+                password: { type: string, minLength: 8, maxLength: 256 }
+                role: { type: string, enum: [superadmin, member], default: member }
+      responses:
+        "201":
+          description: "Code `ok`."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: "Code `forbidden`: caller is a Member."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "409":
+          description: "Code `username_taken` or `email_taken`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: Session token from `POST /api/v1/auth/login`.
+  schemas:
+    Code:
+      type: string
+      description: Stable outcome identifier. Must match the Code* constants in internal/handler/response.go.
+      enum:
+        - ok
+        - unauthorized
+        - forbidden
+        - internal_error
+        - validation_failed
+        - invalid_credentials
+        - bad_request
+        - username_taken
+        - email_taken
+        - rate_limited
+    Envelope:
+      type: object
+      required: [code]
+      properties:
+        code: { $ref: "#/components/schemas/Code" }
+        message: { type: string }
+        data: {}
+        errors:
+          type: object
+          description: Field errors, keyed by request field.
+          additionalProperties: { type: string }
+    ProbeStatus:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+    User:
+      type: object
+      required: [username, email, name, role, created_at]
+      properties:
+        username: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { type: string, enum: [superadmin, member] }
+        created_at: { type: string, format: date-time }
+  responses:
+    BadRequest:
+      description: "Code `bad_request`: body is not valid JSON."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+    Unauthorized:
+      description: "Code `unauthorized`: missing or invalid token."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+    ValidationFailed:
+      description: "Code `validation_failed`; `errors` holds the Field errors."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+    InternalError:
+      description: "Code `internal_error`."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }

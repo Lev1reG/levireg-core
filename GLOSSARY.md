@@ -43,3 +43,11 @@ _Avoid_: normal user, regular user, guest
 **Session**:
 A User's signed-in state, created by logging in and ended by logging out or by expiring. Proven by presenting its token.
 _Avoid_: login, auth token, JWT
+
+**API spec**:
+The OpenAPI document that is the authoritative contract for every endpoint: paths, request bodies, responses and the Codes each can return. If the service and the API spec disagree, it is a bug.
+_Avoid_: swagger, docs, schema
+
+**API reference**:
+The human-readable page rendered from the API spec, for browsing and trying endpoints.
+_Avoid_: swagger, docs, API docs

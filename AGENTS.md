@@ -35,6 +35,7 @@ make test-v PKG=./internal/server/ RUN=TestHealthz   # single test
 ## Conventions
 
 - New routes go under `r.Route("/api/v1", ...)`. `/healthz` stays outside `/api/v1` so probes don't inherit future API middleware (auth, rate limiting).
+- Every new route must be added to `api/openapi.yaml` (and any new `Code*` constant to its `Code` enum); `internal/server/openapi_test.go` fails `make check` otherwise. `/docs` and `/openapi.yaml` serve the API reference and are the only routes exempt.
 - `/healthz` is liveness only; dependency checks live in `/readyz`.
 - Dependencies are passed in as parameters (`New(log, addr, pool)`, where `pool` is a `server.DB`); no globals or package-level singletons. Tests pass `zap.NewNop()`.
 - Routes needing login go inside the `Require` group; Superadmin-only ones add `RequireSuperadmin`. Add new error codes as constants in `internal/handler/response.go`, not string literals.

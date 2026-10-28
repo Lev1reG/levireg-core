@@ -32,6 +32,10 @@ func New(log *zap.Logger, addr string, pool DB) *http.Server {
 	r.Get("/healthz", handler.Healthz)
 	r.Get("/readyz", handler.Readyz(pool))
 
+	// Also outside /api/v1: the spec is not an enveloped API response.
+	r.Get("/docs", handler.Docs)
+	r.Get("/openapi.yaml", handler.OpenAPI)
+
 	r.Route("/api/v1", func(r chi.Router) {
 		a := handler.Auth{Q: db.New(pool)}
 		r.Route("/auth", func(r chi.Router) {
