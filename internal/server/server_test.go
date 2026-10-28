@@ -1,20 +1,16 @@
 package server
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
 
-type okPinger struct{}
-
-func (okPinger) Ping(context.Context) error { return nil }
-
 func TestHealthz(t *testing.T) {
-	srv := New(zap.NewNop(), ":0", okPinger{})
+	srv := New(zap.NewNop(), ":0", (*pgxpool.Pool)(nil)) // healthz never touches the pool
 
 	rec := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))

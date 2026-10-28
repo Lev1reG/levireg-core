@@ -8,11 +8,18 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 
+	"github.com/Lev1reG/levireg-core/internal/db"
 	"github.com/Lev1reG/levireg-core/internal/handler"
 	"github.com/Lev1reG/levireg-core/internal/logger"
 )
 
-func New(log *zap.Logger, addr string, db handler.Pinger) *http.Server {
+// DB is what the server needs from the database; *pgxpool.Pool satisfies it.
+type DB interface {
+	handler.Pinger
+	db.DBTX
+}
+
+func New(log *zap.Logger, addr string, pool DB) *http.Server {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	// nginx on the same host sets X-Real-IP; trust it only from loopback.
@@ -23,10 +30,19 @@ func New(log *zap.Logger, addr string, db handler.Pinger) *http.Server {
 	// Outside /api/v1 on purpose: probes must not inherit API middleware
 	// such as auth or rate limiting.
 	r.Get("/healthz", handler.Healthz)
-	r.Get("/readyz", handler.Readyz(db))
+	r.Get("/readyz", handler.Readyz(pool))
 
 	r.Route("/api/v1", func(r chi.Router) {
-		// No endpoints yet.
+		a := handler.Auth{Q: db.New(pool)}
+		r.Route("/auth", func(r chi.Router) {
+			r.With(handler.RateLimit(5)).Post("/login", a.Login)
+			r.Group(func(r chi.Router) {
+				r.Use(a.Require)
+				r.Post("/logout", a.Logout)
+				r.Get("/me", a.Me)
+				r.With(handler.RequireSuperadmin).Post("/register", a.Register)
+			})
+		})
 	})
 
 	return &http.Server{
