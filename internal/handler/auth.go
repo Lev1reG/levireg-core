@@ -10,9 +10,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.uber.org/zap"
 
 	"github.com/Lev1reG/levireg-core/internal/auth"
 	"github.com/Lev1reG/levireg-core/internal/db"
+	"github.com/Lev1reG/levireg-core/internal/logger"
 )
 
 const sessionTTL = 7 * 24 * time.Hour
@@ -57,7 +59,8 @@ func unauthorized(w http.ResponseWriter) {
 	WriteError(w, http.StatusUnauthorized, CodeUnauthorized, "missing or invalid token", nil)
 }
 
-func serverError(w http.ResponseWriter) {
+func serverError(w http.ResponseWriter, r *http.Request, err error) {
+	logger.From(r.Context()).Error("internal error", zap.Error(err))
 	WriteError(w, http.StatusInternalServerError, CodeInternalError, "something went wrong", nil)
 }
 
@@ -75,7 +78,7 @@ func (a Auth) Require(next http.Handler) http.Handler {
 			return
 		}
 		if err != nil {
-			serverError(w)
+			serverError(w, r, err)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userCtxKey{}, u)))
@@ -120,7 +123,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		hash = u.PasswordHash
 	} else if !errors.Is(err, pgx.ErrNoRows) {
-		serverError(w)
+		serverError(w, r, err)
 		return
 	}
 	if !auth.VerifyPassword(hash, in.Password) || err != nil {
@@ -130,7 +133,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 
 	token, tokenHash, err := auth.NewSessionToken()
 	if err != nil {
-		serverError(w)
+		serverError(w, r, err)
 		return
 	}
 	exp := time.Now().Add(sessionTTL)
@@ -139,7 +142,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: pgtype.Timestamptz{Time: exp, Valid: true},
 	})
 	if err != nil {
-		serverError(w)
+		serverError(w, r, err)
 		return
 	}
 	Write(w, http.StatusOK, struct {
@@ -151,7 +154,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 
 func (a Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	if err := a.Q.DeleteSession(r.Context(), auth.HashToken(bearer(r))); err != nil {
-		serverError(w)
+		serverError(w, r, err)
 		return
 	}
 	WriteCode(w, http.StatusOK, CodeOK, "logged out")
@@ -177,7 +180,7 @@ func (a Auth) Register(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, auth.ErrEmailTaken):
 		WriteError(w, http.StatusConflict, CodeEmailTaken, "email already exists", nil)
 	case err != nil:
-		serverError(w)
+		serverError(w, r, err)
 	default:
 		Write(w, http.StatusCreated, toUserJSON(u))
 	}

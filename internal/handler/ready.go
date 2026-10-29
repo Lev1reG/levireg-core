@@ -4,6 +4,10 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	"go.uber.org/zap"
+
+	"github.com/Lev1reG/levireg-core/internal/logger"
 )
 
 // Pinger is the dependency check Readyz needs; *pgxpool.Pool satisfies it.
@@ -20,6 +24,7 @@ func Readyz(db Pinger) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := db.Ping(ctx); err != nil {
+			logger.From(r.Context()).Warn("dependency unavailable", zap.Error(err))
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("{\"status\":\"unavailable\"}\n"))
 			return

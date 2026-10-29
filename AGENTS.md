@@ -26,7 +26,7 @@ make test-v PKG=./internal/server/ RUN=TestHealthz   # single test
 
 - `main.go` — wiring only: config → logger → server, listen, wait for SIGINT/SIGTERM, 10s graceful shutdown. Dispatches the `create-superadmin` subcommand (`superadmin.go`) on `os.Args[1]` before the server starts.
 - `internal/config` — env loading (`PORT` default 8021, `APP_ENV=production` switches to JSON logs).
-- `internal/logger` — zap setup plus `RequestLogger` middleware (zap has no HTTP adapter, don't swap in chi's own logger).
+- `internal/logger` — zap setup, `RequestLogger` and `Recoverer` middleware (zap has no HTTP adapter, don't swap in chi's own logger or Recoverer). Handlers log via `logger.From(r.Context())`, which carries `request_id`.
 - `internal/server` — router assembly and `http.Server` timeouts; `New()` returns the server so tests exercise `srv.Handler` directly.
 - `internal/handler` — HTTP handlers, auth middleware (`Require`, `RequireSuperadmin`), login rate limit, response codes (constants in `response.go`).
 - `internal/auth` — argon2id passwords, user validation/creation, session token generation and hashing.

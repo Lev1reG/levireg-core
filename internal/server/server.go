@@ -24,8 +24,8 @@ func New(log *zap.Logger, addr string, pool DB) *http.Server {
 	r.Use(middleware.RequestID)
 	// nginx on the same host sets X-Real-IP; trust it only from loopback.
 	r.Use(middleware.ClientIPFromHeader("X-Real-IP", "127.0.0.1/32", "::1/128"))
-	r.Use(middleware.Recoverer)
 	r.Use(logger.RequestLogger(log))
+	r.Use(logger.Recoverer) // inside RequestLogger so panics get request_id
 
 	// Outside /api/v1 on purpose: probes must not inherit API middleware
 	// such as auth or rate limiting.
