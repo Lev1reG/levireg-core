@@ -22,6 +22,12 @@ func TestEnvelope(t *testing.T) {
 		{"error with fields", func(w http.ResponseWriter) {
 			WriteError(w, http.StatusBadRequest, "validation_failed", "invalid", map[string]string{"email": "required"})
 		}, http.StatusBadRequest, `{"code":"validation_failed","message":"invalid","errors":{"email":"required"}}` + "\n"},
+		{"list", func(w http.ResponseWriter) {
+			WriteList(w, []string{"a"}, Meta{Page: 2, PerPage: 20, Total: 21})
+		}, http.StatusOK, `{"code":"ok","data":["a"],"meta":{"page":2,"per_page":20,"total":21}}` + "\n"},
+		{"empty list from nil", func(w http.ResponseWriter) {
+			WriteList[string](w, nil, Meta{Page: 1, PerPage: 20})
+		}, http.StatusOK, `{"code":"ok","data":[],"meta":{"page":1,"per_page":20,"total":0}}` + "\n"},
 	}
 
 	for _, tt := range tests {

@@ -188,6 +188,15 @@ components:
           type: object
           description: Field errors, keyed by request field.
           additionalProperties: { type: string }
+        meta: { $ref: "#/components/schemas/Meta" }
+    Meta:
+      type: object
+      description: Pagination meta, present only on list responses.
+      required: [page, per_page, total]
+      properties:
+        page: { type: integer, minimum: 1 }
+        per_page: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0, description: Number of items matching the query across all pages. }
     ProbeStatus:
       type: object
       required: [status]

@@ -26,11 +26,28 @@ type Envelope[T any] struct {
 	Message string            `json:"message,omitempty"`
 	Data    *T                `json:"data,omitempty"`
 	Errors  map[string]string `json:"errors,omitempty"`
+	Meta    *Meta             `json:"meta,omitempty"`
+}
+
+// Meta is the Pagination meta carried by list responses.
+type Meta struct {
+	Page    int `json:"page"`
+	PerPage int `json:"per_page"`
+	Total   int `json:"total"`
 }
 
 // Write sends a successful envelope with the given status and payload.
 func Write[T any](w http.ResponseWriter, status int, data T) {
 	write(w, status, Envelope[T]{Code: CodeOK, Data: &data})
+}
+
+// WriteList sends a successful list envelope. A nil items slice serializes as
+// [], never null.
+func WriteList[T any](w http.ResponseWriter, items []T, meta Meta) {
+	if items == nil {
+		items = []T{}
+	}
+	write(w, http.StatusOK, Envelope[[]T]{Code: CodeOK, Data: &items, Meta: &meta})
 }
 
 // WriteCode sends a successful envelope with no payload and a custom code, for
