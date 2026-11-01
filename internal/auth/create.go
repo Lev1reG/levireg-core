@@ -22,7 +22,7 @@ func CreateUser(ctx context.Context, q *db.Queries, u NewUser) (db.AuthUser, err
 		return db.AuthUser{}, err
 	}
 	row, err := q.CreateUser(ctx, db.CreateUserParams{
-		Username: u.Username, Email: u.Email, Name: u.Name, PasswordHash: hash, Role: u.Role,
+		Username: u.Username, Email: u.Email, Name: u.Name, PasswordHash: hash, Role: u.Role, Approved: u.Approved,
 	})
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {

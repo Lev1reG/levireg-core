@@ -40,12 +40,19 @@ func New(log *zap.Logger, addr string, pool DB) *http.Server {
 		a := handler.Auth{Q: db.New(pool)}
 		r.Route("/auth", func(r chi.Router) {
 			r.With(handler.RateLimit(5)).Post("/login", a.Login)
+			r.With(handler.RateLimit(3)).Post("/register", a.Register)
 			r.Group(func(r chi.Router) {
 				r.Use(a.Require)
 				r.Post("/logout", a.Logout)
 				r.Get("/me", a.Me)
-				r.With(handler.RequireSuperadmin).Post("/register", a.Register)
 			})
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(a.Require, handler.RequireSuperadmin)
+			r.Post("/users", a.CreateUser)
+			r.Get("/users", a.ListUsers)
+			r.Post("/users/{username}/approve", a.Approve)
+			r.Post("/users/{username}/reject", a.Reject)
 		})
 	})
 

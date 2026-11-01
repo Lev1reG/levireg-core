@@ -14,13 +14,16 @@ const (
 
 var usernameRE = regexp.MustCompile(`^[a-z0-9_]{3,32}$`)
 
-// NewUser is the input to register and create-superadmin.
+// NewUser is the input to Registration, Superadmin user creation and create-superadmin.
 type NewUser struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	Name     string `json:"name"`
 	Password string `json:"password"`
 	Role     string `json:"role"`
+	// Approved creates an Approved User instead of a Pending User. Never read
+	// from a request body.
+	Approved bool `json:"-"`
 }
 
 // Validate normalizes u in place (lowercase username, trimmed fields, default

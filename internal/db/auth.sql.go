@@ -11,6 +11,45 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const approveUser = `-- name: ApproveUser :one
+UPDATE auth.users SET approved_at = now(), updated_at = now()
+WHERE username = $1 AND approved_at IS NULL
+RETURNING username, email, name, password_hash, role, created_at, updated_at, approved_at
+`
+
+// Conditional on still being pending, so concurrent actions cannot both win.
+func (q *Queries) ApproveUser(ctx context.Context, username string) (AuthUser, error) {
+	row := q.db.QueryRow(ctx, approveUser, username)
+	var i AuthUser
+	err := row.Scan(
+		&i.Username,
+		&i.Email,
+		&i.Name,
+		&i.PasswordHash,
+		&i.Role,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ApprovedAt,
+	)
+	return i, err
+}
+
+const countUsers = `-- name: CountUsers :one
+SELECT count(*) FROM auth.users
+WHERE CASE $1::text
+    WHEN 'pending' THEN approved_at IS NULL
+    WHEN 'approved' THEN approved_at IS NOT NULL
+    ELSE true
+END
+`
+
+func (q *Queries) CountUsers(ctx context.Context, status string) (int64, error) {
+	row := q.db.QueryRow(ctx, countUsers, status)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createSession = `-- name: CreateSession :exec
 INSERT INTO auth.sessions (token_hash, username, expires_at)
 VALUES ($1, $2, $3)
@@ -28,9 +67,9 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO auth.users (username, email, name, password_hash, role)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING username, email, name, password_hash, role, created_at, updated_at
+INSERT INTO auth.users (username, email, name, password_hash, role, approved_at)
+VALUES ($1, $2, $3, $4, $5, CASE WHEN $6::boolean THEN now() END)
+RETURNING username, email, name, password_hash, role, created_at, updated_at, approved_at
 `
 
 type CreateUserParams struct {
@@ -39,6 +78,7 @@ type CreateUserParams struct {
 	Name         string
 	PasswordHash string
 	Role         string
+	Approved     bool
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (AuthUser, error) {
@@ -48,6 +88,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (AuthUse
 		arg.Name,
 		arg.PasswordHash,
 		arg.Role,
+		arg.Approved,
 	)
 	var i AuthUser
 	err := row.Scan(
@@ -58,6 +99,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (AuthUse
 		&i.Role,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ApprovedAt,
 	)
 	return i, err
 }
@@ -72,7 +114,7 @@ func (q *Queries) DeleteSession(ctx context.Context, tokenHash []byte) error {
 }
 
 const getUserBySessionToken = `-- name: GetUserBySessionToken :one
-SELECT u.username, u.email, u.name, u.password_hash, u.role, u.created_at, u.updated_at FROM auth.sessions s
+SELECT u.username, u.email, u.name, u.password_hash, u.role, u.created_at, u.updated_at, u.approved_at FROM auth.sessions s
 JOIN auth.users u ON u.username = s.username
 WHERE s.token_hash = $1 AND s.expires_at > now()
 `
@@ -88,12 +130,13 @@ func (q *Queries) GetUserBySessionToken(ctx context.Context, tokenHash []byte) (
 		&i.Role,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ApprovedAt,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT username, email, name, password_hash, role, created_at, updated_at FROM auth.users WHERE username = $1
+SELECT username, email, name, password_hash, role, created_at, updated_at, approved_at FROM auth.users WHERE username = $1
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (AuthUser, error) {
@@ -107,6 +150,65 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (AuthU
 		&i.Role,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ApprovedAt,
 	)
 	return i, err
+}
+
+const listUsers = `-- name: ListUsers :many
+SELECT username, email, name, password_hash, role, created_at, updated_at, approved_at FROM auth.users
+WHERE CASE $1::text
+    WHEN 'pending' THEN approved_at IS NULL
+    WHEN 'approved' THEN approved_at IS NOT NULL
+    ELSE true
+END
+ORDER BY created_at DESC, username ASC
+LIMIT $3 OFFSET $2::bigint
+`
+
+type ListUsersParams struct {
+	Status     string
+	PageOffset int64
+	PageLimit  int32
+}
+
+func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]AuthUser, error) {
+	rows, err := q.db.Query(ctx, listUsers, arg.Status, arg.PageOffset, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuthUser
+	for rows.Next() {
+		var i AuthUser
+		if err := rows.Scan(
+			&i.Username,
+			&i.Email,
+			&i.Name,
+			&i.PasswordHash,
+			&i.Role,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ApprovedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const rejectUser = `-- name: RejectUser :execrows
+DELETE FROM auth.users WHERE username = $1 AND approved_at IS NULL
+`
+
+func (q *Queries) RejectUser(ctx context.Context, username string) (int64, error) {
+	result, err := q.db.Exec(ctx, rejectUser, username)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

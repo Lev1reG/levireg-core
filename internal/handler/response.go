@@ -17,6 +17,9 @@ const (
 	CodeUsernameTaken      = "username_taken"
 	CodeEmailTaken         = "email_taken"
 	CodeRateLimited        = "rate_limited"
+	CodeUserPending        = "user_pending"
+	CodeUserNotPending     = "user_not_pending"
+	CodeUserNotFound       = "user_not_found"
 )
 
 // Envelope is the shape of every /api/v1 response. Code is the stable contract

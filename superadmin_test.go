@@ -41,7 +41,7 @@ func TestCreateSuperadmin(t *testing.T) {
 		t.Fatal(err)
 	}
 	u, err := q.GetUserByUsername(ctx, "clitest")
-	if err != nil || u.Role != "superadmin" {
+	if err != nil || u.Role != "superadmin" || !u.ApprovedAt.Valid {
 		t.Fatalf("user = %+v, err = %v", u, err)
 	}
 	err = createSuperadmin(ctx, q, args, strings.NewReader("password123\n"))

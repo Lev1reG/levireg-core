@@ -72,6 +72,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
+        "403":
+          description: "Code `user_pending`: correct password, but the User is not yet approved. No Session is created."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
         "429":
           description: "Code `rate_limited`."
@@ -114,9 +119,51 @@ paths:
         "500": { $ref: "#/components/responses/InternalError" }
   /api/v1/auth/register:
     post:
-      summary: Register a User (Superadmin only)
+      summary: Register as a Pending User
+      description: Public Registration; always creates a Member and ignores any `role`. The User cannot sign in until a Superadmin approves. Rate limited to 3 requests per minute per client IP.
       operationId: register
       tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, email, name, password]
+              properties:
+                username: { type: string, pattern: "^[a-z0-9_]{3,32}$" }
+                email: { type: string, format: email }
+                name: { type: string }
+                password: { type: string, minLength: 8, maxLength: 256 }
+      responses:
+        "201":
+          description: "Code `ok`; `approved_at` is null."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: "Code `username_taken` or `email_taken`, including against Pending Users."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429":
+          description: "Code `rate_limited`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /api/v1/users:
+    post:
+      summary: Create an Approved User (Superadmin only)
+      operationId: createUser
+      tags: [Users]
       security: [{ bearer: [] }]
       requestBody:
         required: true
@@ -133,7 +180,7 @@ paths:
                 role: { type: string, enum: [superadmin, member], default: member }
       responses:
         "201":
-          description: "Code `ok`."
+          description: "Code `ok`; the User can sign in at once."
           content:
             application/json:
               schema:
@@ -144,17 +191,114 @@ paths:
                       data: { $ref: "#/components/schemas/User" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403":
-          description: "Code `forbidden`: caller is a Member."
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Envelope" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "409":
           description: "Code `username_taken` or `email_taken`."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+    get:
+      summary: List Users (Superadmin only)
+      description: Ordered `created_at DESC, username ASC`. A `page` past the end returns an empty `data` array and the correct `total`.
+      operationId: listUsers
+      tags: [Users]
+      security: [{ bearer: [] }]
+      parameters:
+        - name: status
+          in: query
+          description: Omit for all Users.
+          schema: { type: string, enum: [pending, approved] }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: "Code `ok`, with Pagination `meta`."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    required: [data, meta]
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /api/v1/users/{username}/approve:
+    post:
+      summary: Approve a Pending User (Superadmin only)
+      operationId: approveUser
+      tags: [Users]
+      security: [{ bearer: [] }]
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Code `ok` with the Approved User."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: "Code `user_not_found`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "409":
+          description: "Code `user_not_pending`: the User is already approved."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /api/v1/users/{username}/reject:
+    post:
+      summary: Reject a Pending User (Superadmin only)
+      operationId: rejectUser
+      tags: [Users]
+      security: [{ bearer: [] }]
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "Code `ok`, no payload. The User is deleted; the username and email become free."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: "Code `user_not_found`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "409":
+          description: "Code `user_not_pending`: the User is already approved."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
         "500": { $ref: "#/components/responses/InternalError" }
 components:
   securitySchemes:
@@ -177,6 +321,9 @@ components:
         - username_taken
         - email_taken
         - rate_limited
+        - user_pending
+        - user_not_pending
+        - user_not_found
     Envelope:
       type: object
       required: [code]
@@ -204,14 +351,20 @@ components:
         status: { type: string, enum: [ok, unavailable] }
     User:
       type: object
-      required: [username, email, name, role, created_at]
+      required: [username, email, name, role, created_at, approved_at]
       properties:
         username: { type: string }
         email: { type: string, format: email }
         name: { type: string }
         role: { type: string, enum: [superadmin, member] }
         created_at: { type: string, format: date-time }
+        approved_at: { type: [string, "null"], format: date-time, description: Null for a Pending User. }
   responses:
+    Forbidden:
+      description: "Code `forbidden`: caller is not a Superadmin."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
     BadRequest:
       description: "Code `bad_request`: body is not valid JSON."
       content:

@@ -23,6 +23,7 @@ type AuthUser struct {
 	Role         string
 	CreatedAt    pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
+	ApprovedAt   pgtype.Timestamptz
 }
 
 type Example struct {

@@ -38,10 +38,16 @@ type UserJSON struct {
 	Name      string    `json:"name"`
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
+	// ApprovedAt is null for a Pending User.
+	ApprovedAt *time.Time `json:"approved_at"`
 }
 
 func toUserJSON(u db.AuthUser) UserJSON {
-	return UserJSON{u.Username, u.Email, u.Name, u.Role, u.CreatedAt.Time}
+	j := UserJSON{Username: u.Username, Email: u.Email, Name: u.Name, Role: u.Role, CreatedAt: u.CreatedAt.Time}
+	if u.ApprovedAt.Valid {
+		j.ApprovedAt = &u.ApprovedAt.Time
+	}
+	return j
 }
 
 // Auth serves the /auth endpoints and the middleware guarding protected routes.
@@ -130,6 +136,11 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusUnauthorized, CodeInvalidCredentials, "wrong username or password", nil)
 		return
 	}
+	// After the password check, so only someone who knows it learns the state.
+	if !u.ApprovedAt.Valid {
+		WriteError(w, http.StatusForbidden, CodeUserPending, "awaiting approval", nil)
+		return
+	}
 
 	token, tokenHash, err := auth.NewSessionToken()
 	if err != nil {
@@ -164,10 +175,24 @@ func (a Auth) Me(w http.ResponseWriter, r *http.Request) {
 	Write(w, http.StatusOK, toUserJSON(currentUser(r)))
 }
 
+// Register is public Registration: always a Pending Member.
 func (a Auth) Register(w http.ResponseWriter, r *http.Request) {
+	a.create(w, r, false)
+}
+
+// CreateUser lets a Superadmin create an Approved User directly.
+func (a Auth) CreateUser(w http.ResponseWriter, r *http.Request) {
+	a.create(w, r, true)
+}
+
+func (a Auth) create(w http.ResponseWriter, r *http.Request, approved bool) {
 	var in auth.NewUser
 	if !decode(w, r, &in) {
 		return
+	}
+	in.Approved = approved
+	if !approved {
+		in.Role = auth.RoleMember
 	}
 	if errs := in.Validate(); len(errs) > 0 {
 		WriteError(w, http.StatusUnprocessableEntity, CodeValidationFailed, "invalid fields", errs)

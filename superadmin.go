@@ -20,7 +20,7 @@ import (
 // comes from stdin so it never lands in shell history or env.
 func createSuperadmin(ctx context.Context, q *db.Queries, args []string, stdin io.Reader) error {
 	fs := flag.NewFlagSet("create-superadmin", flag.ContinueOnError)
-	u := auth.NewUser{Role: auth.RoleSuperadmin}
+	u := auth.NewUser{Role: auth.RoleSuperadmin, Approved: true}
 	fs.StringVar(&u.Username, "username", "", "username (3-32 chars: a-z, 0-9, _)")
 	fs.StringVar(&u.Email, "email", "", "email address")
 	fs.StringVar(&u.Name, "name", "", "display name")
