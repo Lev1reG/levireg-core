@@ -65,7 +65,7 @@ A User without administrative rights. Every publicly registered User is a Member
 _Avoid_: normal user, regular user, guest
 
 **Session**:
-A User's signed-in state, created by logging in and ended by logging out or by expiring. Proven by presenting its token.
+A User's signed-in state, created by logging in and ended by logging out, by expiring, or by being displaced: a User holds at most 5 Sessions, and logging in past that ends the oldest. Expired Sessions are deleted periodically. Proven by presenting its token.
 _Avoid_: login, auth token, JWT
 
 **API spec**:

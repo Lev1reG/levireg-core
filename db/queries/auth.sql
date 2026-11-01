@@ -33,9 +33,24 @@ DELETE FROM auth.users WHERE username = $1 AND approved_at IS NULL;
 -- name: GetUserByUsername :one
 SELECT * FROM auth.users WHERE username = $1;
 
+-- Inserts the session and drops the User's oldest ones beyond max_sessions. The
+-- DELETE cannot see the new row, so it keeps max_sessions-1 existing ones.
+-- Concurrent logins may briefly exceed the cap; the next login trims it.
 -- name: CreateSession :exec
-INSERT INTO auth.sessions (token_hash, username, expires_at)
-VALUES ($1, $2, $3);
+WITH new_session AS (
+    INSERT INTO auth.sessions (token_hash, username, expires_at)
+    VALUES (sqlc.arg(token_hash), sqlc.arg(username), sqlc.arg(expires_at))
+)
+DELETE FROM auth.sessions AS t
+WHERE t.username = sqlc.arg(username) AND t.token_hash NOT IN (
+    SELECT s.token_hash FROM auth.sessions s
+    WHERE s.username = sqlc.arg(username)
+    ORDER BY s.created_at DESC
+    LIMIT sqlc.arg(max_sessions)::bigint - 1
+);
+
+-- name: DeleteExpiredSessions :execrows
+DELETE FROM auth.sessions WHERE expires_at <= now();
 
 -- name: GetUserBySessionToken :one
 SELECT u.* FROM auth.sessions s

@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 
+	"github.com/Lev1reG/levireg-core/internal/auth"
 	"github.com/Lev1reG/levireg-core/internal/config"
 	"github.com/Lev1reG/levireg-core/internal/db"
 	"github.com/Lev1reG/levireg-core/internal/logger"
@@ -56,6 +57,8 @@ func main() {
 		fmt.Println("superadmin created")
 		return
 	}
+
+	go auth.PurgeExpiredSessions(ctx, db.New(pool), log, time.Hour)
 
 	srv := server.New(log, net.JoinHostPort("", cfg.Port), pool)
 

@@ -17,7 +17,11 @@ import (
 	"github.com/Lev1reG/levireg-core/internal/logger"
 )
 
-const sessionTTL = 7 * 24 * time.Hour
+const (
+	sessionTTL = 7 * 24 * time.Hour
+	// Logging in past this many Sessions ends the User's oldest ones.
+	maxSessionsPerUser = 5
+)
 
 // Fixed hash verified for unknown usernames so login timing does not reveal
 // which usernames exist.
@@ -149,7 +153,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	exp := time.Now().Add(sessionTTL)
 	err = a.Q.CreateSession(r.Context(), db.CreateSessionParams{
-		TokenHash: tokenHash, Username: u.Username,
+		TokenHash: tokenHash, Username: u.Username, MaxSessions: maxSessionsPerUser,
 		ExpiresAt: pgtype.Timestamptz{Time: exp, Valid: true},
 	})
 	if err != nil {

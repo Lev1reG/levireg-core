@@ -36,7 +36,9 @@ paths:
   /api/v1/auth/login:
     post:
       summary: Sign in and create a Session
-      description: Rate limited to 5 requests per minute per client IP.
+      description: |
+        Rate limited to 5 requests per minute per client IP. A User holds at most 5 Sessions;
+        logging in past that ends the oldest one (its token then gets `unauthorized`).
       operationId: login
       tags: [Auth]
       requestBody:

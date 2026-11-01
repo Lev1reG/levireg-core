@@ -1,0 +1,1 @@
+DROP INDEX auth.sessions_username_created_at_idx;

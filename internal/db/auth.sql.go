@@ -51,18 +51,36 @@ func (q *Queries) CountUsers(ctx context.Context, status string) (int64, error) 
 }
 
 const createSession = `-- name: CreateSession :exec
-INSERT INTO auth.sessions (token_hash, username, expires_at)
-VALUES ($1, $2, $3)
+WITH new_session AS (
+    INSERT INTO auth.sessions (token_hash, username, expires_at)
+    VALUES ($3, $1, $4)
+)
+DELETE FROM auth.sessions AS t
+WHERE t.username = $1 AND t.token_hash NOT IN (
+    SELECT s.token_hash FROM auth.sessions s
+    WHERE s.username = $1
+    ORDER BY s.created_at DESC
+    LIMIT $2::bigint - 1
+)
 `
 
 type CreateSessionParams struct {
-	TokenHash []byte
-	Username  string
-	ExpiresAt pgtype.Timestamptz
+	Username    string
+	MaxSessions int64
+	TokenHash   []byte
+	ExpiresAt   pgtype.Timestamptz
 }
 
+// Inserts the session and drops the User's oldest ones beyond max_sessions. The
+// DELETE cannot see the new row, so it keeps max_sessions-1 existing ones.
+// Concurrent logins may briefly exceed the cap; the next login trims it.
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
-	_, err := q.db.Exec(ctx, createSession, arg.TokenHash, arg.Username, arg.ExpiresAt)
+	_, err := q.db.Exec(ctx, createSession,
+		arg.Username,
+		arg.MaxSessions,
+		arg.TokenHash,
+		arg.ExpiresAt,
+	)
 	return err
 }
 
@@ -102,6 +120,18 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (AuthUse
 		&i.ApprovedAt,
 	)
 	return i, err
+}
+
+const deleteExpiredSessions = `-- name: DeleteExpiredSessions :execrows
+DELETE FROM auth.sessions WHERE expires_at <= now()
+`
+
+func (q *Queries) DeleteExpiredSessions(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredSessions)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deleteSession = `-- name: DeleteSession :exec
