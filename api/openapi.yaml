@@ -2,7 +2,12 @@ openapi: 3.1.0
 info:
   title: levireg-core
   version: 1.0.0
-  description: Backend API for the personal website. Every /api/v1 response uses the envelope; clients branch on `code`.
+  description: |
+    Backend API for the personal website. Every /api/v1 response uses the envelope; clients branch on `code`.
+
+    The Session travels in the `__Host-session` cookie (HttpOnly, Secure, SameSite=Strict) set by login.
+    Browsers on origins in `ALLOWED_ORIGINS` get CORS with credentials. Any non-GET /api/v1 request whose
+    `Origin` is neither allowed nor the API's own host gets 403 `forbidden`; requests without `Origin` pass.
 servers:
   - url: /
 paths:
@@ -38,7 +43,8 @@ paths:
       summary: Sign in and create a Session
       description: |
         Rate limited to 5 requests per minute per client IP. A User holds at most 5 Sessions;
-        logging in past that ends the oldest one (its token then gets `unauthorized`).
+        logging in past that ends the oldest one (its cookie then gets `unauthorized`).
+        The Session token is only ever sent in the `Set-Cookie` header, never in the body.
       operationId: login
       tags: [Auth]
       requestBody:
@@ -53,7 +59,11 @@ paths:
                 password: { type: string }
       responses:
         "200":
-          description: "Code `ok`."
+          description: "Code `ok`. `data` is the signed-in User."
+          headers:
+            Set-Cookie:
+              description: "`__Host-session=<token>; Path=/; Max-Age=604800; HttpOnly; Secure; SameSite=Strict`"
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -61,13 +71,7 @@ paths:
                   - $ref: "#/components/schemas/Envelope"
                   - type: object
                     properties:
-                      data:
-                        type: object
-                        required: [token, expires_at, user]
-                        properties:
-                          token: { type: string }
-                          expires_at: { type: string, format: date-time }
-                          user: { $ref: "#/components/schemas/User" }
+                      data: { $ref: "#/components/schemas/User" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401":
           description: "Code `invalid_credentials`."
@@ -91,10 +95,14 @@ paths:
       summary: End the current Session
       operationId: logout
       tags: [Auth]
-      security: [{ bearer: [] }]
+      security: [{ session: [] }]
       responses:
         "200":
           description: "Code `ok`."
+          headers:
+            Set-Cookie:
+              description: "Clears `__Host-session` (`Max-Age=0`)."
+              schema: { type: string }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
@@ -105,7 +113,7 @@ paths:
       summary: Current User
       operationId: me
       tags: [Auth]
-      security: [{ bearer: [] }]
+      security: [{ session: [] }]
       responses:
         "200":
           description: "Code `ok`."
@@ -166,7 +174,7 @@ paths:
       summary: Create an Approved User (Superadmin only)
       operationId: createUser
       tags: [Users]
-      security: [{ bearer: [] }]
+      security: [{ session: [] }]
       requestBody:
         required: true
         content:
@@ -206,7 +214,7 @@ paths:
       description: Ordered `created_at DESC, username ASC`. A `page` past the end returns an empty `data` array and the correct `total`.
       operationId: listUsers
       tags: [Users]
-      security: [{ bearer: [] }]
+      security: [{ session: [] }]
       parameters:
         - name: status
           in: query
@@ -241,7 +249,7 @@ paths:
       summary: Approve a Pending User (Superadmin only)
       operationId: approveUser
       tags: [Users]
-      security: [{ bearer: [] }]
+      security: [{ session: [] }]
       parameters:
         - name: username
           in: path
@@ -276,7 +284,7 @@ paths:
       summary: Reject a Pending User (Superadmin only)
       operationId: rejectUser
       tags: [Users]
-      security: [{ bearer: [] }]
+      security: [{ session: [] }]
       parameters:
         - name: username
           in: path
@@ -304,10 +312,11 @@ paths:
         "500": { $ref: "#/components/responses/InternalError" }
 components:
   securitySchemes:
-    bearer:
-      type: http
-      scheme: bearer
-      description: Session token from `POST /api/v1/auth/login`.
+    session:
+      type: apiKey
+      in: cookie
+      name: __Host-session
+      description: Session cookie set by `POST /api/v1/auth/login`.
   schemas:
     Code:
       type: string
@@ -373,7 +382,7 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Envelope" }
     Unauthorized:
-      description: "Code `unauthorized`: missing or invalid token."
+      description: "Code `unauthorized`: missing or invalid Session cookie. An invalid one is cleared via `Set-Cookie`."
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Envelope" }

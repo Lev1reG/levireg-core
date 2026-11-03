@@ -48,7 +48,7 @@ func TestSpecMatchesRoutes(t *testing.T) {
 		}
 	}
 
-	srv := New(zap.NewNop(), ":0", (*pgxpool.Pool)(nil))
+	srv := New(zap.NewNop(), ":0", (*pgxpool.Pool)(nil), nil)
 	err := chi.Walk(srv.Handler.(chi.Routes), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		if route == "/docs" || route == "/openapi.yaml" {
 			return nil

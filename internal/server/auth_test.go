@@ -19,6 +19,7 @@ import (
 
 	"github.com/Lev1reG/levireg-core/internal/auth"
 	"github.com/Lev1reG/levireg-core/internal/db"
+	"github.com/Lev1reG/levireg-core/internal/handler"
 )
 
 // Needs the compose Postgres with migrations applied (make up migrate-up);
@@ -53,7 +54,7 @@ type testEnv struct {
 
 func newEnv(t *testing.T) *testEnv {
 	pool := testPool(t)
-	return &testEnv{t: t, h: New(zap.NewNop(), ":0", pool).Handler, pool: pool}
+	return &testEnv{t: t, h: New(zap.NewNop(), ":0", pool, nil).Handler, pool: pool}
 }
 
 func (e *testEnv) seed(username, role string, approved bool) {
@@ -71,6 +72,7 @@ type resp struct {
 	Status  int
 	Message string
 	Raw     []byte
+	Cookies []*http.Cookie
 }
 
 func (e *testEnv) do(method, path, token string, body any) resp {
@@ -84,7 +86,7 @@ func (e *testEnv) do(method, path, token string, body any) resp {
 	req.RemoteAddr = "127.0.0.1:1"
 	req.Header.Set("X-Real-IP", "10.0.0.1")
 	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.AddCookie(&http.Cookie{Name: handler.SessionCookie, Value: token})
 	}
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
@@ -94,6 +96,7 @@ func (e *testEnv) do(method, path, token string, body any) resp {
 	}
 	r.Status = rec.Code
 	r.Raw = rec.Body.Bytes()
+	r.Cookies = rec.Result().Cookies()
 	return r
 }
 
@@ -104,12 +107,20 @@ func (e *testEnv) login(username, password string) resp {
 func (e *testEnv) token(username string) string {
 	e.t.Helper()
 	r := e.login(username, "password123")
-	var d struct{ Token string }
-	_ = json.Unmarshal(r.Data, &d)
-	if d.Token == "" {
-		e.t.Fatalf("no token: %+v", r)
+	c := sessionCookie(r)
+	if c == nil || c.Value == "" {
+		e.t.Fatalf("no session cookie: %+v", r)
 	}
-	return d.Token
+	return c.Value
+}
+
+func sessionCookie(r resp) *http.Cookie {
+	for _, c := range r.Cookies {
+		if c.Name == handler.SessionCookie {
+			return c
+		}
+	}
+	return nil
 }
 
 func want(t *testing.T, r resp, status int, code string) {
@@ -125,26 +136,28 @@ func TestLogin(t *testing.T) {
 
 	r := e.login("Alice", "password123") // username is case-insensitive
 	want(t, r, 200, "ok")
-	var d struct {
-		Token     string
-		ExpiresAt time.Time `json:"expires_at"`
-		User      map[string]any
-	}
-	if err := json.Unmarshal(r.Data, &d); err != nil {
+	var user map[string]any
+	if err := json.Unmarshal(r.Data, &user); err != nil {
 		t.Fatal(err)
 	}
-	if d.Token == "" || d.User["username"] != "alice" || d.User["role"] != "member" {
+	if user["username"] != "alice" || user["role"] != "member" {
 		t.Fatalf("bad data: %s", r.Data)
 	}
-	if _, leaked := d.User["password_hash"]; leaked {
-		t.Fatal("password_hash leaked")
+	for _, k := range []string{"password_hash", "token"} {
+		if _, leaked := user[k]; leaked {
+			t.Fatalf("%s leaked", k)
+		}
 	}
-	if got := time.Until(d.ExpiresAt); got < 167*time.Hour || got > 169*time.Hour {
-		t.Fatalf("expires in %v, want ~7 days", got)
+	c := sessionCookie(r)
+	if c == nil || c.Value == "" || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode || c.Path != "/" || c.Domain != "" {
+		t.Fatalf("bad cookie: %+v", c)
+	}
+	if c.MaxAge != 7*24*3600 {
+		t.Fatalf("cookie Max-Age %d, want 7 days", c.MaxAge)
 	}
 
 	// Only the hash is stored.
-	h := sha256.Sum256([]byte(d.Token))
+	h := sha256.Sum256([]byte(c.Value))
 	if _, err := db.New(e.pool).GetUserBySessionToken(context.Background(), h[:]); err != nil {
 		t.Fatalf("session not stored by sha256: %v", err)
 	}
@@ -170,7 +183,11 @@ func TestMe(t *testing.T) {
 	}
 
 	want(t, e.do("GET", "/api/v1/auth/me", "", nil), 401, "unauthorized")
-	want(t, e.do("GET", "/api/v1/auth/me", "garbage", nil), 401, "unauthorized")
+	garbage := e.do("GET", "/api/v1/auth/me", "garbage", nil)
+	want(t, garbage, 401, "unauthorized")
+	if c := sessionCookie(garbage); c == nil || c.MaxAge >= 0 {
+		t.Fatalf("dead cookie not cleared: %+v", c)
+	}
 
 	// Expired session.
 	h := sha256.Sum256([]byte("expiredtoken"))
@@ -189,7 +206,11 @@ func TestLogoutEndsOnlyCurrentSession(t *testing.T) {
 	e.seed("alice", auth.RoleMember, true)
 	a, b := e.token("alice"), e.token("alice")
 
-	want(t, e.do("POST", "/api/v1/auth/logout", a, nil), 200, "ok")
+	out := e.do("POST", "/api/v1/auth/logout", a, nil)
+	want(t, out, 200, "ok")
+	if c := sessionCookie(out); c == nil || c.MaxAge >= 0 {
+		t.Fatalf("logout did not clear cookie: %+v", c)
+	}
 	want(t, e.do("GET", "/api/v1/auth/me", a, nil), 401, "unauthorized")
 	want(t, e.do("GET", "/api/v1/auth/me", b, nil), 200, "ok")
 	want(t, e.do("POST", "/api/v1/auth/logout", "", nil), 401, "unauthorized")

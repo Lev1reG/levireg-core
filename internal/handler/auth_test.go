@@ -8,14 +8,15 @@ import (
 )
 
 // These paths answer before touching the DB, so a zero Auth is enough.
-func TestRequireRejectsMissingOrMalformedAuthorization(t *testing.T) {
+func TestRequireRejectsMissingSessionCookie(t *testing.T) {
 	h := Auth{}.Require(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("next called")
 	}))
-	for _, hdr := range []string{"", "Bearer", "Bearer ", "Basic abc", "abc", "bearer abc"} {
+	// A Bearer header is not a way in any more.
+	for _, hdr := range []string{"", "Authorization: Bearer abc", "Cookie: __Host-session=", "Cookie: session=abc"} {
 		req := httptest.NewRequest("GET", "/", nil)
-		if hdr != "" {
-			req.Header.Set("Authorization", hdr)
+		if k, v, ok := strings.Cut(hdr, ": "); ok {
+			req.Header.Set(k, v)
 		}
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)

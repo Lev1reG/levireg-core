@@ -19,7 +19,8 @@ type DB interface {
 	db.DBTX
 }
 
-func New(log *zap.Logger, addr string, pool DB) *http.Server {
+// origins are the browser origins allowed to call /api/v1 with credentials.
+func New(log *zap.Logger, addr string, pool DB, origins []string) *http.Server {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	// nginx on the same host sets X-Real-IP; trust it only from loopback.
@@ -37,6 +38,7 @@ func New(log *zap.Logger, addr string, pool DB) *http.Server {
 	r.Get("/openapi.yaml", handler.OpenAPI)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(handler.Origins(origins))
 		a := handler.Auth{Q: db.New(pool)}
 		r.Route("/auth", func(r chi.Router) {
 			r.With(handler.RateLimit(5)).Post("/login", a.Login)

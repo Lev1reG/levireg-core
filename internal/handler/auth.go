@@ -57,12 +57,24 @@ func toUserJSON(u db.AuthUser) UserJSON {
 // Auth serves the /auth endpoints and the middleware guarding protected routes.
 type Auth struct{ Q *db.Queries }
 
-func bearer(r *http.Request) string {
-	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok {
+// SessionCookie carries the Session token. __Host- makes browsers insist on
+// Secure, Path=/ and no Domain, so the cookie stays on the API's own host.
+const SessionCookie = "__Host-session"
+
+func sessionToken(r *http.Request) string {
+	c, err := r.Cookie(SessionCookie)
+	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(tok)
+	return c.Value
+}
+
+// setSessionCookie stores token for maxAge; maxAge < 0 deletes the cookie.
+func setSessionCookie(w http.ResponseWriter, token string, maxAge int) {
+	http.SetCookie(w, &http.Cookie{
+		Name: SessionCookie, Value: token, Path: "/", MaxAge: maxAge,
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
+	})
 }
 
 func unauthorized(w http.ResponseWriter) {
@@ -77,13 +89,14 @@ func serverError(w http.ResponseWriter, r *http.Request, err error) {
 // Require puts the session's User in the request context or answers 401.
 func (a Auth) Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tok := bearer(r)
+		tok := sessionToken(r)
 		if tok == "" {
 			unauthorized(w)
 			return
 		}
 		u, err := a.Q.GetUserBySessionToken(r.Context(), auth.HashToken(tok))
 		if errors.Is(err, pgx.ErrNoRows) {
+			setSessionCookie(w, "", -1) // dead Session: stop the browser resending it
 			unauthorized(w)
 			return
 		}
@@ -151,27 +164,24 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		serverError(w, r, err)
 		return
 	}
-	exp := time.Now().Add(sessionTTL)
 	err = a.Q.CreateSession(r.Context(), db.CreateSessionParams{
 		TokenHash: tokenHash, Username: u.Username, MaxSessions: maxSessionsPerUser,
-		ExpiresAt: pgtype.Timestamptz{Time: exp, Valid: true},
+		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(sessionTTL), Valid: true},
 	})
 	if err != nil {
 		serverError(w, r, err)
 		return
 	}
-	Write(w, http.StatusOK, struct {
-		Token     string    `json:"token"`
-		ExpiresAt time.Time `json:"expires_at"`
-		User      UserJSON  `json:"user"`
-	}{token, exp, toUserJSON(u)})
+	setSessionCookie(w, token, int(sessionTTL.Seconds()))
+	Write(w, http.StatusOK, toUserJSON(u))
 }
 
 func (a Auth) Logout(w http.ResponseWriter, r *http.Request) {
-	if err := a.Q.DeleteSession(r.Context(), auth.HashToken(bearer(r))); err != nil {
+	if err := a.Q.DeleteSession(r.Context(), auth.HashToken(sessionToken(r))); err != nil {
 		serverError(w, r, err)
 		return
 	}
+	setSessionCookie(w, "", -1)
 	WriteCode(w, http.StatusOK, CodeOK, "logged out")
 }
 

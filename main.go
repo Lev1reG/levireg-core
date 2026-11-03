@@ -60,7 +60,7 @@ func main() {
 
 	go auth.PurgeExpiredSessions(ctx, db.New(pool), log, time.Hour)
 
-	srv := server.New(log, net.JoinHostPort("", cfg.Port), pool)
+	srv := server.New(log, net.JoinHostPort("", cfg.Port), pool, cfg.AllowedOrigins)
 
 	go func() {
 		log.Info("server listening", zap.String("addr", srv.Addr))

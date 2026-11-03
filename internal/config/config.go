@@ -1,11 +1,16 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 type Config struct {
 	Port        string
 	IsProd      bool
 	DatabaseURL string
+	// AllowedOrigins may call the API from a browser with the Session cookie.
+	AllowedOrigins []string
 }
 
 func Load() Config {
@@ -13,7 +18,8 @@ func Load() Config {
 		Port:   env("PORT", "8021"),
 		IsProd: env("APP_ENV", "development") == "production",
 		// Default matches the Postgres service in compose.yaml.
-		DatabaseURL: env("DATABASE_URL", "postgres://levireg:levireg@localhost:5432/levireg?sslmode=disable"),
+		DatabaseURL:    env("DATABASE_URL", "postgres://levireg:levireg@localhost:5432/levireg?sslmode=disable"),
+		AllowedOrigins: strings.FieldsFunc(os.Getenv("ALLOWED_ORIGINS"), func(r rune) bool { return r == ',' || r == ' ' }),
 	}
 }
 

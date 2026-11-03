@@ -10,7 +10,7 @@ import (
 )
 
 func TestHealthz(t *testing.T) {
-	srv := New(zap.NewNop(), ":0", (*pgxpool.Pool)(nil)) // healthz never touches the pool
+	srv := New(zap.NewNop(), ":0", (*pgxpool.Pool)(nil), nil) // healthz never touches the pool
 
 	rec := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
