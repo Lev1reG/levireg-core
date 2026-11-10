@@ -9,18 +9,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 
 	"github.com/Lev1reG/levireg-core/internal/auth"
 	"github.com/Lev1reG/levireg-core/internal/db"
 	"github.com/Lev1reG/levireg-core/internal/logger"
-)
-
-const (
-	sessionTTL = 7 * 24 * time.Hour
-	// Logging in past this many Sessions ends the User's oldest ones.
-	maxSessionsPerUser = 5
 )
 
 // Fixed hash verified for unknown usernames so login timing does not reveal
@@ -55,7 +48,10 @@ func toUserJSON(u db.AuthUser) UserJSON {
 }
 
 // Auth serves the /auth endpoints and the middleware guarding protected routes.
-type Auth struct{ Q *db.Queries }
+type Auth struct {
+	Q        *db.Queries
+	Sessions auth.Sessions
+}
 
 // SessionCookie carries the Session token. __Host- makes browsers insist on
 // Secure, Path=/ and no Domain, so the cookie stays on the API's own host.
@@ -89,13 +85,8 @@ func serverError(w http.ResponseWriter, r *http.Request, err error) {
 // Require puts the session's User in the request context or answers 401.
 func (a Auth) Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tok := sessionToken(r)
-		if tok == "" {
-			unauthorized(w)
-			return
-		}
-		u, err := a.Q.GetUserBySessionToken(r.Context(), auth.HashToken(tok))
-		if errors.Is(err, pgx.ErrNoRows) {
+		u, err := a.Sessions.Resolve(r.Context(), sessionToken(r))
+		if errors.Is(err, auth.ErrNoSession) {
 			setSessionCookie(w, "", -1) // dead Session: stop the browser resending it
 			unauthorized(w)
 			return
@@ -159,25 +150,17 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, tokenHash, err := auth.NewSessionToken()
+	token, expires, err := a.Sessions.Start(r.Context(), u.Username)
 	if err != nil {
 		serverError(w, r, err)
 		return
 	}
-	err = a.Q.CreateSession(r.Context(), db.CreateSessionParams{
-		TokenHash: tokenHash, Username: u.Username, MaxSessions: maxSessionsPerUser,
-		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(sessionTTL), Valid: true},
-	})
-	if err != nil {
-		serverError(w, r, err)
-		return
-	}
-	setSessionCookie(w, token, int(sessionTTL.Seconds()))
+	setSessionCookie(w, token, int(time.Until(expires).Round(time.Second).Seconds()))
 	Write(w, http.StatusOK, toUserJSON(u))
 }
 
 func (a Auth) Logout(w http.ResponseWriter, r *http.Request) {
-	if err := a.Q.DeleteSession(r.Context(), auth.HashToken(sessionToken(r))); err != nil {
+	if err := a.Sessions.End(r.Context(), sessionToken(r)); err != nil {
 		serverError(w, r, err)
 		return
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 
+	"github.com/Lev1reG/levireg-core/internal/auth"
 	"github.com/Lev1reG/levireg-core/internal/db"
 	"github.com/Lev1reG/levireg-core/internal/handler"
 	"github.com/Lev1reG/levireg-core/internal/logger"
@@ -39,7 +40,8 @@ func New(log *zap.Logger, addr string, pool DB, origins []string) *http.Server {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(handler.Origins(origins))
-		a := handler.Auth{Q: db.New(pool)}
+		q := db.New(pool)
+		a := handler.Auth{Q: q, Sessions: auth.Sessions{Q: q}}
 		r.Route("/auth", func(r chi.Router) {
 			r.With(handler.RateLimit(5)).Post("/login", a.Login)
 			r.With(handler.RateLimit(3)).Post("/register", a.Register)

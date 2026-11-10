@@ -58,7 +58,7 @@ func main() {
 		return
 	}
 
-	go auth.PurgeExpiredSessions(ctx, db.New(pool), log, time.Hour)
+	go auth.Sessions{Q: db.New(pool)}.PurgeExpired(ctx, log, time.Hour)
 
 	srv := server.New(log, net.JoinHostPort("", cfg.Port), pool, cfg.AllowedOrigins)
 
